@@ -1,0 +1,912 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MSBA Dynamic Schedule & AI Dispatch Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Inter', 'Noto Sans SC', sans-serif;
+      background-color: #f8fafc;
+      color: #0f172a;
+    }
+    .timeline-line::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 1.15rem;
+      width: 2px;
+      background-color: #e2e8f0;
+      z-index: 0;
+    }
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .animate-slide-in {
+      animation: slideIn 0.25s ease-out forwards;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+  <!-- Top Navigation & Bilingual Header -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-30">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-indigo-900 text-white flex items-center justify-center font-bold text-lg shadow-sm">
+          UW
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 id="app-title" class="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
+              MSBA AI Schedule & Dynamic To-Do System
+            </h1>
+            <span class="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200">
+              AUT 2026 • Gold/B
+            </span>
+          </div>
+          <p id="app-subtitle" class="text-xs text-slate-500">
+            Three-Source Sync: MSBA Class Schedule + Canvas DDLs + Routine Spec
+          </p>
+        </div>
+      </div>
+
+      <!-- Right Controls: Language Toggle, Rules Drawer, Evening Check-in Trigger -->
+      <div class="flex items-center gap-2 sm:gap-3">
+        <button onclick="toggleLanguage()" id="lang-btn"
+          class="px-3 py-1.5 rounded-lg text-xs font-semibold border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 transition flex items-center gap-1.5 shadow-xs">
+          <span>🌐</span>
+          <span id="lang-label">中文 / EN</span>
+        </button>
+
+        <button onclick="toggleRulesModal()"
+          class="px-3 py-1.5 rounded-lg text-xs font-semibold border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 transition flex items-center gap-1.5 shadow-xs">
+          <span>📐</span>
+          <span id="rules-btn-text">System Rules</span>
+        </button>
+
+        <button onclick="openEveningModal()"
+          class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white transition flex items-center gap-1.5 shadow-sm">
+          <span>🌙</span>
+          <span id="evening-btn-text">22:30 Evening Check-in</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Workspace -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+    <!-- Scenario Day Switcher Bar -->
+    <section class="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+        <div>
+          <span class="text-xs font-semibold uppercase tracking-wider text-indigo-600" id="scenario-eyebrow">
+            Interactive Demo Scenarios (Select a Day)
+          </span>
+          <h2 class="text-sm font-medium text-slate-600" id="scenario-desc">
+            Switch between representative days from your November 2026 calendar to inspect how AI schedules classes, commutes, workouts, and buffers.
+          </h2>
+        </div>
+        <button onclick="resetCurrentDay()" class="self-start sm:self-auto text-xs text-slate-500 hover:text-indigo-600 underline font-medium" id="reset-day-btn">
+          Reset Day State
+        </button>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5" id="day-selector-grid">
+        <!-- Populated by JS -->
+      </div>
+    </section>
+
+    <!-- Status Alert & Metrics Bar -->
+    <section class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+      <!-- Left: Morning Dispatch Status Banner -->
+      <div class="lg:col-span-7 bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs flex flex-col justify-between">
+        <div>
+          <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <span class="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-md">
+              ☀️ <span id="dispatch-badge">07:20 Morning Dispatch</span>
+            </span>
+            <span id="load-status-pill" class="text-xs font-semibold px-2.5 py-1 rounded-full">
+              High-DDL Sprint
+            </span>
+          </div>
+          <h3 id="day-headline" class="text-lg font-bold text-slate-900 mt-1">
+            Tuesday, Nov 17, 2026 — Evening Lecture & Clustered DDLs
+          </h3>
+          <p id="day-alert-text" class="text-xs sm:text-sm text-slate-600 mt-1.5 leading-relaxed">
+            Key Alerts: TECHIN 599 (13:30) & BUS AN 513 Ex4 (17:59) due today. Dinner shifted to 16:30–17:35; depart for PCAR 291 at 17:35.
+          </p>
+        </div>
+
+        <!-- Dynamic Rebalance Log (Visible when urgent task added) -->
+        <div id="rebalance-log-box" class="hidden mt-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-900 space-y-1 animate-slide-in">
+          <div class="font-bold flex items-center gap-1.5">
+            <span>⚡</span>
+            <span id="rebalance-log-title">Dynamic Re-Balance Engine Executed:</span>
+          </div>
+          <ul id="rebalance-log-list" class="list-disc list-inside space-y-0.5 text-rose-800"></ul>
+        </div>
+      </div>
+
+      <!-- Right: Daily Hours & Buffer Accounting -->
+      <div class="lg:col-span-5 bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs flex flex-col justify-between">
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-xs font-bold uppercase tracking-wider text-slate-500" id="metrics-title">
+            Daily Time Budget (07:30 – 23:30)
+          </span>
+          <span id="completion-counter" class="text-xs font-bold text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded-full">
+            0 / 12 Done
+          </span>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2.5 text-center">
+          <div class="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80">
+            <div id="metric-study-hrs" class="text-lg font-bold text-slate-900">6.5h</div>
+            <div id="metric-study-lbl" class="text-[11px] font-medium text-slate-500 mt-0.5">Tier S/A/B Focus</div>
+          </div>
+          <div class="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80">
+            <div id="metric-commute-hrs" class="text-lg font-bold text-slate-900">2.75h</div>
+            <div id="metric-commute-lbl" class="text-[11px] font-medium text-slate-500 mt-0.5">Meals & Commute</div>
+          </div>
+          <div class="p-2.5 rounded-xl bg-emerald-50/70 border border-emerald-200">
+            <div id="metric-buffer-hrs" class="text-lg font-bold text-emerald-700">4.5h</div>
+            <div id="metric-buffer-lbl" class="text-[11px] font-medium text-emerald-700 mt-0.5">Wkly Buffer Left</div>
+          </div>
+        </div>
+
+        <div class="mt-3 pt-3 border-t border-slate-100 flex items-start gap-2 text-xs text-slate-600">
+          <span class="font-semibold text-slate-700 shrink-0" id="skipped-label">Auto-Deferred:</span>
+          <span id="skipped-items-text" class="text-slate-500">C3_Gym (1x/wk), B1_Case Study (shifted to Thu/Sun)</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Main Two-Column Content: Left Timeline, Right Priority Legend & Quick Actions -->
+    <section class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+
+      <!-- Left Column (8 cols): Interactive Time-Blocked To-Do Timeline -->
+      <div class="lg:col-span-8 bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+        <div class="px-5 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 bg-slate-50/60">
+          <div>
+            <h3 class="text-sm font-bold text-slate-900" id="timeline-heading">
+              Time-Blocked Daily Execution Plan (07:30 – 23:30)
+            </h3>
+            <p class="text-xs text-slate-500" id="timeline-sub">
+              Click checkboxes to mark blocks complete. Sleep (23:30–07:30) is strictly locked.
+            </p>
+          </div>
+          <div class="flex items-center gap-1.5 text-[11px] font-medium text-slate-500">
+            <span class="w-2.5 h-2.5 rounded-full bg-slate-800 inline-block"></span>
+            <span id="sleep-lock-badge">Sleep Locked: 23:30 – 07:30 (8.0h)</span>
+          </div>
+        </div>
+
+        <div class="p-4 sm:p-5 relative timeline-line space-y-3" id="timeline-container">
+          <!-- Timeline blocks injected here -->
+        </div>
+      </div>
+
+      <!-- Right Column (4 cols): Priority Matrix & Live Urgent Task Simulator -->
+      <div class="lg:col-span-4 space-y-5">
+
+        <!-- Priority Tier Legend Card -->
+        <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
+          <h4 class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3" id="legend-title">
+            Priority & Degradation Hierarchy
+          </h4>
+          <div class="space-y-2.5 text-xs">
+            <div class="flex items-start gap-2.5 p-2 rounded-lg bg-rose-50/70 border border-rose-200/80">
+              <span class="px-1.5 py-0.5 rounded font-bold bg-rose-600 text-white shrink-0">S</span>
+              <div>
+                <div class="font-semibold text-slate-900" id="tier-s-name">Academic Core & DDLs</div>
+                <div class="text-slate-600 text-[11px]" id="tier-s-desc">MSBA lectures & Canvas deadlines. Never preempted.</div>
+              </div>
+            </div>
+
+            <div class="flex items-start gap-2.5 p-2 rounded-lg bg-indigo-50/70 border border-indigo-200/80">
+              <span class="px-1.5 py-0.5 rounded font-bold bg-indigo-600 text-white shrink-0">A</span>
+              <div>
+                <div class="font-semibold text-slate-900" id="tier-a-name">Core Skills (A1 > A2 > A3)</div>
+                <div class="text-slate-600 text-[11px]" id="tier-a-desc">Bereal Research, SQL (7h/wk), Duolingo (15m/day).</div>
+              </div>
+            </div>
+
+            <div class="flex items-start gap-2.5 p-2 rounded-lg bg-amber-50/70 border border-amber-200/80">
+              <span class="px-1.5 py-0.5 rounded font-bold bg-amber-600 text-white shrink-0">B</span>
+              <div>
+                <div class="font-semibold text-slate-900" id="tier-b-name">Cases & Climbing (B1 > B2)</div>
+                <div class="text-slate-600 text-[11px]" id="tier-b-desc">Case Study (8h/wk), Bouldering (3x/wk + 1.5h commute).</div>
+              </div>
+            </div>
+
+            <div class="flex items-start gap-2.5 p-2 rounded-lg bg-slate-100 border border-slate-200">
+              <span class="px-1.5 py-0.5 rounded font-bold bg-slate-600 text-white shrink-0">C</span>
+              <div>
+                <div class="font-semibold text-slate-900" id="tier-c-name">Flexible (C1 > C2 > C3 > C4)</div>
+                <div class="text-slate-600 text-[11px]" id="tier-c-desc">Reading, Podcast, Gym (1x/wk + 40m commute), Power BI (Dec 1). Cut first under overload.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick Urgent Task Injector Card (Inline Preview of Evening Check-in) -->
+        <div class="bg-gradient-to-br from-slate-900 to-indigo-950 text-white rounded-2xl p-5 shadow-md">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-bold uppercase tracking-wider text-indigo-300" id="sim-eyebrow">
+              Live AI Re-Balance Demo
+            </span>
+            <span class="text-xs bg-white/10 px-2 py-0.5 rounded text-indigo-200">22:30 Mode</span>
+          </div>
+          <h4 class="text-base font-bold" id="sim-title">
+            Got an Unexpected Urgent Task?
+          </h4>
+          <p class="text-xs text-slate-300 mt-1 leading-relaxed" id="sim-desc">
+            Test how the AI protects your sleep (23:30) and classes by consuming Emergency Buffers first, then automatically cutting Tier C/B tasks.
+          </p>
+
+          <div class="mt-4 space-y-2.5">
+            <button onclick="injectPresetUrgent()"
+              class="w-full py-2.5 px-3 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-white text-xs font-semibold transition flex items-center justify-center gap-2 shadow-xs">
+              <span>⚡</span>
+              <span id="preset-urgent-btn">Simulate: +2.0h Urgent Team Meeting</span>
+            </button>
+            <button onclick="openEveningModal()"
+              class="w-full py-2 px-3 rounded-xl bg-white/10 hover:bg-white/15 text-white text-xs font-medium transition border border-white/15">
+              <span id="custom-urgent-btn">Open Full Evening Check-in Form...</span>
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </section>
+  </main>
+
+  <!-- Evening Check-in & Urgent Task Modal -->
+  <div id="evening-modal" class="fixed inset-0 z-50 hidden bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-lg w-full border border-slate-200 shadow-2xl overflow-hidden animate-slide-in">
+      <div class="px-6 py-4 bg-indigo-950 text-white flex items-center justify-between">
+        <div>
+          <span class="text-[11px] font-bold uppercase tracking-wider text-indigo-300">Mode B • 22:30 Interactive Intake</span>
+          <h3 class="text-base font-bold" id="modal-evening-title">Evening Check-in & Urgent Task Re-balancer</h3>
+        </div>
+        <button onclick="closeEveningModal()" class="text-slate-300 hover:text-white text-xl leading-none">&times;</button>
+      </div>
+
+      <form onsubmit="handleUrgentSubmit(event)" class="p-6 space-y-4 text-sm">
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1" id="lbl-task-name">
+            1. New Urgent / Extra Task Name
+          </label>
+          <input type="text" id="urgent-task-name" required
+            placeholder="e.g., BUS AN 506 Emergency Team Sync / Professor Office Hours"
+            class="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1" id="lbl-task-duration">
+              2. Estimated Duration
+            </label>
+            <select id="urgent-task-duration"
+              class="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              <option value="1">1.0 Hour</option>
+              <option value="1.5">1.5 Hours</option>
+              <option value="2" selected>2.0 Hours</option>
+              <option value="2.5">2.5 Hours</option>
+              <option value="3">3.0 Hours</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1" id="lbl-task-priority">
+              3. Priority Tier
+            </label>
+            <select id="urgent-task-priority"
+              class="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              <option value="S">Tier S (Academic / Hard DDL)</option>
+              <option value="A">Tier A (High Priority Project)</option>
+              <option value="B">Tier B (Moderate Priority)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 space-y-1">
+          <div class="font-semibold text-slate-800" id="modal-rule-note-title">AI Re-balancing Logic:</div>
+          <p id="modal-rule-note-body">
+            The system will first check for available <strong>Emergency Buffer</strong> slots on the current day. If none exist, it will automatically preempt <strong>Tier C</strong> (Gym, Reading, Podcast) or <strong>Tier B</strong> (Case Study) blocks while preserving your 23:30 sleep lock and campus commute buffers.
+          </p>
+        </div>
+
+        <div class="flex items-center justify-end gap-2.5 pt-2">
+          <button type="button" onclick="closeEveningModal()"
+            class="px-4 py-2 rounded-xl border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+            Cancel
+          </button>
+          <button type="submit"
+            class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-sm">
+            Run AI Re-balance & Update Schedule
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- System Rules & Three-Source Architecture Modal -->
+  <div id="rules-modal" class="fixed inset-0 z-50 hidden bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-2xl w-full border border-slate-200 shadow-2xl overflow-hidden animate-slide-in max-h-[90vh] flex flex-col">
+      <div class="px-6 py-4 bg-slate-900 text-white flex items-center justify-between shrink-0">
+        <div>
+          <span class="text-[11px] font-bold uppercase tracking-wider text-indigo-300">System Specification Reference</span>
+          <h3 class="text-base font-bold">Three-Source Architecture & Hard Constraints</h3>
+        </div>
+        <button onclick="toggleRulesModal()" class="text-slate-300 hover:text-white text-xl leading-none">&times;</button>
+      </div>
+
+      <div class="p-6 overflow-y-auto space-y-4 text-xs text-slate-700 leading-relaxed">
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div class="p-3 rounded-xl bg-indigo-50 border border-indigo-200">
+            <div class="font-bold text-indigo-950 mb-1">1. MSBA Class Schedule</div>
+            <p class="text-indigo-900/80">Tue & Thu 18:00–21:15 evening lectures; bi-weekly Sat 09:00–16:45 full-day ML classes. Locked as Tier S.</p>
+          </div>
+          <div class="p-3 rounded-xl bg-rose-50 border border-rose-200">
+            <div class="font-bold text-rose-950 mb-1">2. Canvas Calendar</div>
+            <p class="text-rose-900/80">Triggers Tier S Academic Sprint Blocks 2–3 days prior to clustered DDLs (e.g., TECHIN 599, BUS AN 506/513).</p>
+          </div>
+          <div class="p-3 rounded-xl bg-emerald-50 border border-emerald-200">
+            <div class="font-bold text-emerald-950 mb-1">3. Routine Spec Doc</div>
+            <p class="text-emerald-900/80">Governs 07:30–23:30 canvas, meal shifts, round-trip commutes, weekly task quotas, and C4 Power BI handoff on Dec 1.</p>
+          </div>
+        </div>
+
+        <div class="border border-slate-200 rounded-xl overflow-hidden">
+          <table class="w-full text-left border-collapse">
+            <thead class="bg-slate-100 text-slate-800 font-bold">
+              <tr>
+                <th class="p-2.5 border-b border-slate-200">Constraint / Activity</th>
+                <th class="p-2.5 border-b border-slate-200">Net Duration</th>
+                <th class="p-2.5 border-b border-slate-200">Commute Buffer</th>
+                <th class="p-2.5 border-b border-slate-200">Hard Rule</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200">
+              <tr>
+                <td class="p-2.5 font-semibold">Core Sleep Window</td>
+                <td class="p-2.5">8.0 hrs</td>
+                <td class="p-2.5">—</td>
+                <td class="p-2.5">23:30 – 07:30 strictly locked</td>
+              </tr>
+              <tr>
+                <td class="p-2.5 font-semibold">Campus Lecture</td>
+                <td class="p-2.5">3.25h (Eve) / 6.5h (Sat)</td>
+                <td class="p-2.5">45 mins round-trip</td>
+                <td class="p-2.5">Eve dinner shifts to 16:30–17:30; leave 17:35</td>
+              </tr>
+              <tr>
+                <td class="p-2.5 font-semibold">B2_Climbing (3x/wk)</td>
+                <td class="p-2.5">3.0 – 4.0 hrs</td>
+                <td class="p-2.5">1.5 hrs round-trip</td>
+                <td class="p-2.5">4.5–5.5h total block; Wed, Fri, Sun/Mon</td>
+              </tr>
+              <tr>
+                <td class="p-2.5 font-semibold">C3_Gym (1x/wk)</td>
+                <td class="p-2.5">2.0 – 3.0 hrs</td>
+                <td class="p-2.5">~40 mins round-trip</td>
+                <td class="p-2.5">Randomized body-part; never on Climbing day</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // State Management
+    let currentLang = 'en';
+    let currentDayId = 'tue-nov17';
+    let schedulesState = {};
+
+    // Master Data for Representative Scenarios
+    const initialScenarios = {
+      'tue-nov17': {
+        id: 'tue-nov17',
+        tabDateEn: 'Tue, Nov 17',
+        tabDateZh: '11月17日 周二',
+        tabTagEn: 'High-DDL + Eve Class',
+        tabTagZh: '高压DDL + 晚课',
+        loadStatusEn: 'High-DDL Sprint',
+        loadStatusZh: '高压DDL冲刺日',
+        loadBadgeClass: 'bg-rose-100 text-rose-800 border border-rose-200',
+        headlineEn: 'Tuesday, Nov 17, 2026 — Evening Lecture & Clustered DDLs',
+        headlineZh: '2026年11月17日（周二）— 晚间课程与密集DDL冲刺日',
+        alertEn: 'Key Alerts: TECHIN 599 (13:30) & BUS AN 513 Ex4 (17:59) due today. Dinner shifted early to 16:30–17:35; depart for PCAR 291 at 17:35.',
+        alertZh: '关键提醒：今日 13:30 提交 TECHIN 599 三项文档，17:59 提交 BUS AN 513 Ex4。晚餐前移至 16:30–17:35，17:35 准时离家赴校。',
+        studyHrs: 6.5,
+        commuteMealHrs: 2.75,
+        bufferHrs: 4.5,
+        skippedEn: 'C3_Gym (1x/wk), B1_Case Study (deferred to Thu/Sun)',
+        skippedZh: 'C3_Gym（本周1次顺延）、B1_Case Study（移至周四/周日）',
+        rebalanceLogs: [],
+        blocks: [
+          { id: 't1', time: '07:30 – 08:30', duration: 1.0, tier: 'C', code: 'C2_Podcast', titleEn: 'Wake up, breakfast + C2_Podcast (1 ep)', titleZh: '起床洗漱早餐 + C2_Podcast 播客听力（1集）', noteEn: 'Time-folded with morning routine', noteZh: '早间生活时间折叠', done: true },
+          { id: 't2', time: '08:30 – 11:00', duration: 2.5, tier: 'S', code: 'Tier S DDL', titleEn: 'TECHIN 599 & BUS AN 513 Ex4 final review & submission prep', titleZh: 'TECHIN 599 谈判文档与 BUS AN 513 Ex4 最终检查', noteEn: 'Deep-work block (2.5 hrs cap)', noteZh: '深度学习块（上限2.5h）', done: false },
+          { id: 't3', time: '11:00 – 12:00', duration: 1.0, tier: 'A', code: 'A2_SQL', titleEn: 'A2_SQL Curriculum Unit Practice (Condensed 1h block)', titleZh: 'A2_SQL 数据库单元练习（压缩1小时模块）', noteEn: 'Maintains weekly SQL momentum', noteZh: '保持每周SQL学习节奏', done: false },
+          { id: 't4', time: '12:00 – 13:00', duration: 1.0, tier: 'Routine', code: 'Meal', titleEn: 'Lunch & midday cognitive reset', titleZh: '午餐与午间休息', noteEn: 'Fixed 1.0h meal buffer', noteZh: '固定1小时餐饮缓冲', done: false },
+          { id: 't5', time: '13:00 – 13:30', duration: 0.5, tier: 'S', code: 'Canvas DDL', titleEn: 'Submit 3 TECHIN 599 deliverables on Canvas', titleZh: 'Canvas 提交 TECHIN 599 三项谈判作业', noteEn: 'Hard deadline at 13:30', noteZh: '13:30 硬性截止', done: false },
+          { id: 't6', time: '13:30 – 16:30', duration: 3.0, tier: 'S', code: 'Tier S Sprint', titleEn: 'BUS AN 506 Littlefield Technologies Report drafting', titleZh: 'BUS AN 506 Littlefield 仿真报告核心撰写', noteEn: 'Preempts B1/C3 ahead of Thu DDL', noteZh: '抢占B1/C3时段冲刺周四报告', done: false },
+          { id: 't7', time: '16:30 – 17:35', duration: 1.0, tier: 'Routine', code: 'Early Dinner', titleEn: 'Early Dinner & pack for evening lecture', titleZh: '提前晚餐与晚课出发准备', noteEn: 'Shifted from 18:00 due to class', noteZh: '因18:00晚课前移1.5小时', done: false },
+          { id: 't8', time: '17:35 – 18:00', duration: 0.4, tier: 'Commute', code: 'Transit', titleEn: 'Commute to UW Foster (PCAR 291)', titleZh: '前往 UW Foster 学院通勤（PCAR 291）', noteEn: '~22 mins one-way (45m round-trip)', noteZh: '单程约22分钟（往返45分钟）', done: false },
+          { id: 't9', time: '18:00 – 21:15', duration: 3.25, tier: 'S', code: 'MSBA Class', titleEn: 'Lecture: BUS AN 513 B (Customer Analytics - Rutz)', titleZh: '课程：BUS AN 513 B 客户分析（Prof. Rutz）', noteEn: 'Fixed MSBA schedule block', noteZh: 'MSBA课表锁定授课时间', done: false },
+          { id: 't10', time: '21:15 – 21:40', duration: 0.4, tier: 'Commute', code: 'Transit', titleEn: 'Commute home from campus', titleZh: '晚课结束返家通勤', noteEn: 'Home by 21:40', noteZh: '21:40 抵达家中', done: false },
+          { id: 't11', time: '21:40 – 23:00', duration: 1.3, tier: 'C', code: 'C1_Reading', titleEn: 'Shower, wind down + C1_Reading (30 mins)', titleZh: '洗漱放松 + C1_Reading 日常阅读（30分钟）', noteEn: 'Low-load evening recovery', noteZh: '低认知负荷晚间恢复', done: false },
+          { id: 't12', time: '23:00 – 23:30', duration: 0.5, tier: 'A', code: 'A3_Duolingo', titleEn: 'A3_Duolingo Korean (15m) + Lights out at 23:30', titleZh: 'A3_Duolingo 韩语（15分钟）+ 23:30 准时熄灯', noteEn: 'Locked sleep window: 23:30–07:30', noteZh: '睡眠红线锁定：23:30–07:30', done: false }
+        ]
+      },
+      'wed-nov18': {
+        id: 'wed-nov18',
+        tabDateEn: 'Wed, Nov 18',
+        tabDateZh: '11月18日 周三',
+        tabTagEn: 'Bouldering + Buffer',
+        tabTagZh: '攀岩日 + 缓冲池',
+        loadStatusEn: 'Balanced + Buffer Ready',
+        loadStatusZh: '均衡推进 + 含应急缓冲池',
+        loadBadgeClass: 'bg-indigo-100 text-indigo-800 border border-indigo-200',
+        headlineEn: 'Wednesday, Nov 18, 2026 — Core Projects, Bouldering & Buffer',
+        headlineZh: '2026年11月18日（周三）— 核心项目、抱石攀岩与缓冲池日',
+        alertEn: 'No evening class today. Includes B2_Climbing (4.5h incl. 1.5h commute) and a 2.0h Emergency Buffer block at 19:30–21:30.',
+        alertZh: '今日无晚课。已安排 B2_Climbing 抱石攀岩（含1.5h往返通勤共4.5h），并于 19:30–21:30 预留 2.0h 应急缓冲池。',
+        studyHrs: 6.0,
+        commuteMealHrs: 3.5,
+        bufferHrs: 4.5,
+        skippedEn: 'C3_Gym (strictly separated from Climbing day)',
+        skippedZh: 'C3_Gym（严格与攀岩日错开，防止过度疲劳）',
+        rebalanceLogs: [],
+        blocks: [
+          { id: 'w1', time: '07:30 – 08:30', duration: 1.0, tier: 'C', code: 'C2_Podcast', titleEn: 'Wake up, breakfast + C2_Podcast (1 ep)', titleZh: '起床洗漱早餐 + C2_Podcast 播客听力（1集）', noteEn: 'Morning audio routine', noteZh: '早间固定听力习惯', done: true },
+          { id: 'w2', time: '08:30 – 10:30', duration: 2.0, tier: 'A', code: 'A1_Bereal', titleEn: 'A1_Bereal Research (Unit 3 — Session 1/2)', titleZh: 'A1_Bereal Research 商业研究（第3单元 1/2）', noteEn: 'Peak morning cognitive focus', noteZh: '上午黄金专注时段', done: false },
+          { id: 'w3', time: '10:30 – 12:00', duration: 1.5, tier: 'S', code: 'Tier S Prep', titleEn: 'BUS AN 506 Littlefield Report final polishing', titleZh: 'BUS AN 506 Littlefield 报告最终润色（明晚DDL）', noteEn: '1 day prior to Thu 17:59 DDL', noteZh: '距周四17:59截止提前1天完成', done: false },
+          { id: 'w4', time: '12:00 – 13:00', duration: 1.0, tier: 'Routine', code: 'Meal', titleEn: 'Lunch & pre-workout nutrition', titleZh: '午餐与运动前能量补给', noteEn: 'Fixed 1.0h meal buffer', noteZh: '固定1小时餐饮缓冲', done: false },
+          { id: 'w5', time: '13:00 – 17:30', duration: 4.5, tier: 'B', code: 'B2_Climbing', titleEn: 'B2_Climbing (Bouldering: 3.0h session + 1.5h commute)', titleZh: 'B2_Climbing 抱石攀岩（场内3.0h + 往返通勤1.5h）', noteEn: 'Full 4.5h calendar block locked', noteZh: '完整锁定4.5小时含通勤区块', done: false },
+          { id: 'w6', time: '17:30 – 18:30', duration: 1.0, tier: 'Routine', code: 'Meal', titleEn: 'Dinner & post-climbing recovery', titleZh: '晚餐与攀岩后恢复', noteEn: 'Standard evening meal window', noteZh: '常规晚餐时间窗', done: false },
+          { id: 'w7', time: '18:30 – 19:30', duration: 1.0, tier: 'C', code: 'C1_Reading', titleEn: 'C1_Reading (45 mins) + Light review', titleZh: 'C1_Reading 日常阅读（45分钟）+ 轻度复盘', noteEn: 'Low-intensity transition', noteZh: '低强度过渡时段', done: false },
+          { id: 'w8', time: '19:30 – 21:30', duration: 2.0, tier: 'Buffer', code: 'Emergency Buffer', titleEn: 'Emergency Buffer Slot #1 (2.0 hrs reserved)', titleZh: '应急缓冲区块 #1（预留 2.0 小时机动时间）', noteEn: 'Absorbs urgent tasks or converts to A2_SQL', noteZh: '优先承接突发事项，无突发则补A2_SQL', done: false },
+          { id: 'w9', time: '21:30 – 23:00', duration: 1.5, tier: 'A', code: 'A2_SQL', titleEn: 'A2_SQL Practical Case Study (1.5 hrs)', titleZh: 'A2_SQL 实战案例练习（1.5小时）', noteEn: 'Evening hands-on coding', noteZh: '晚间代码实操', done: false },
+          { id: 'w10', time: '23:00 – 23:30', duration: 0.5, tier: 'A', code: 'A3_Duolingo', titleEn: 'A3_Duolingo Korean (15m) + Sleep at 23:30', titleZh: 'A3_Duolingo 韩语（15分钟）+ 23:30 睡觉', noteEn: 'Locked sleep window: 23:30–07:30', noteZh: '睡眠红线锁定：23:30–07:30', done: false }
+        ]
+      },
+      'sat-nov21': {
+        id: 'sat-nov21',
+        tabDateEn: 'Sat, Nov 21',
+        tabDateZh: '11月21日 周六',
+        tabTagEn: 'Full-Day ML Class',
+        tabTagZh: '周六全天满课',
+        loadStatusEn: 'Full-Day Lecture Lock',
+        loadStatusZh: '全天课程锁定日',
+        loadBadgeClass: 'bg-amber-100 text-amber-800 border border-amber-200',
+        headlineEn: 'Saturday, Nov 21, 2026 — Full-Day BUS AN 517 B Lecture',
+        headlineZh: '2026年11月21日（周六）— BUS AN 517 B 全天课程日',
+        alertEn: 'Depart home at 08:35 (45m round-trip commute folds C2_Podcast). Return at 17:10. High-exertion workouts strictly prohibited post-class.',
+        alertZh: '08:35 离家赴校（往返45分钟通勤折叠 C2_Podcast 播客），17:10 返家。课后严禁安排攀岩或健身等高耗能运动。',
+        studyHrs: 8.0,
+        commuteMealHrs: 3.0,
+        bufferHrs: 2.5,
+        skippedEn: 'B2_Climbing & C3_Gym (anti-burnout rule on full-day class)',
+        skippedZh: 'B2_Climbing 与 C3_Gym（全天满课日防疲劳保护规则）',
+        rebalanceLogs: [],
+        blocks: [
+          { id: 's1', time: '07:30 – 08:35', duration: 1.1, tier: 'Routine', code: 'Morning', titleEn: 'Wake up, breakfast & full-day class prep', titleZh: '起床、早餐与全天课程准备', noteEn: 'Depart by 08:35 sharp', noteZh: '08:35 准时出门', done: true },
+          { id: 's2', time: '08:35 – 09:00', duration: 0.4, tier: 'Commute', code: 'Transit + C2', titleEn: 'Commute to PCAR 291 + C2_Podcast (Part 1)', titleZh: '前往 PCAR 291 通勤 + C2_Podcast 播客（上半集）', noteEn: 'Time-folded transit audio', noteZh: '通勤时间折叠听播客', done: false },
+          { id: 's3', time: '09:00 – 12:15', duration: 3.25, tier: 'S', code: 'MSBA Class', titleEn: 'BUS AN 517 B: Machine Learning & AI (Morning Session)', titleZh: '课程：BUS AN 517 B 机器学习与AI（上午场）', noteEn: 'Prof. Farah Akoum • PCAR 291', noteZh: 'Prof. Farah Akoum • PCAR 291', done: false },
+          { id: 's4', time: '12:15 – 13:30', duration: 1.25, tier: 'Routine', code: 'Meal', titleEn: 'Campus Lunch & midday break', titleZh: '校内午餐与午间休整', noteEn: '1.25h break between sessions', noteZh: '上下午课程间隔1.25小时', done: false },
+          { id: 's5', time: '13:30 – 16:45', duration: 3.25, tier: 'S', code: 'MSBA Class', titleEn: 'BUS AN 517 B: Machine Learning & AI (Afternoon Session)', titleZh: '课程：BUS AN 517 B 机器学习与AI（下午场）', noteEn: 'Fixed MSBA schedule block', noteZh: 'MSBA课表锁定授课时间', done: false },
+          { id: 's6', time: '16:45 – 17:10', duration: 0.4, tier: 'Commute', code: 'Transit + C2', titleEn: 'Commute home + C2_Podcast (Part 2)', titleZh: '返家通勤 + C2_Podcast 播客（下半集）', noteEn: 'Completes daily 45m podcast quota', noteZh: '累计完成今日45分钟播客配额', done: false },
+          { id: 's7', time: '17:10 – 19:00', duration: 1.8, tier: 'Routine', code: 'Dinner & Rest', titleEn: 'Decompress, shower & Dinner (18:00–19:00)', titleZh: '课后放松休整与晚餐（18:00–19:00）', noteEn: 'No workouts scheduled post-full-day class', noteZh: '全天课后不排高强度运动', done: false },
+          { id: 's8', time: '19:00 – 21:00', duration: 2.0, tier: 'B', code: 'B1_Case Study', titleEn: 'B1_Case Study Structured Analysis (2.0 hrs)', titleZh: 'B1_Case Study 商业案例分析（2.0小时）', noteEn: 'Light analytical block', noteZh: '晚间分析模块', done: false },
+          { id: 's9', time: '21:00 – 23:00', duration: 2.0, tier: 'C', code: 'C1_Reading', titleEn: 'C1_Reading (45m) + Free personal wind-down', titleZh: 'C1_Reading 日常阅读（45分钟）+ 自由休闲', noteEn: 'Cognitive recovery after 6.5h lecture', noteZh: '6.5小时高强度听课后的脑力恢复', done: false },
+          { id: 's10', time: '23:00 – 23:30', duration: 0.5, tier: 'A', code: 'A3_Duolingo', titleEn: 'A3_Duolingo Korean (15m) + Sleep at 23:30', titleZh: 'A3_Duolingo 韩语（15分钟）+ 23:30 睡觉', noteEn: 'Locked sleep window: 23:30–07:30', noteZh: '睡眠红线锁定：23:30–07:30', done: false }
+        ]
+      },
+      'thu-nov26': {
+        id: 'thu-nov26',
+        tabDateEn: 'Thu, Nov 26',
+        tabDateZh: '11月26日 周四',
+        tabTagEn: 'Thanksgiving Catch-up',
+        tabTagZh: '感恩节追赶窗口',
+        loadStatusEn: 'Holiday Recovery Window',
+        loadStatusZh: '假期低负荷追赶日',
+        loadBadgeClass: 'bg-emerald-100 text-emerald-800 border border-emerald-200',
+        headlineEn: 'Thursday, Nov 26, 2026 — Thanksgiving Recess & Catch-up Day',
+        headlineZh: '2026年11月26日（周四）— 感恩节停课与学习进度补齐日',
+        alertEn: 'No MSBA classes (Holiday). Freed evening lecture window is reassigned to recover deferred A1_Bereal Research, A2_SQL, and weekly C3_Gym.',
+        alertZh: '感恩节停课无晚课。系统自动释放原晚课时段，用于集中补齐此前高压周顺延的 A1_Bereal Research、A2_SQL 及本周 1 次 C3_Gym。',
+        studyHrs: 6.5,
+        commuteMealHrs: 2.7,
+        bufferHrs: 5.0,
+        skippedEn: 'None — full quota active + catch-up bonus!',
+        skippedZh: '无削减 — 全额配额执行并超额追赶进度！',
+        rebalanceLogs: [],
+        blocks: [
+          { id: 'h1', time: '07:30 – 08:30', duration: 1.0, tier: 'C', code: 'C2_Podcast', titleEn: 'Wake up, breakfast + C2_Podcast (1 ep)', titleZh: '起床洗漱早餐 + C2_Podcast 播客听力（1集）', noteEn: 'Morning routine', noteZh: '早间固定习惯', done: true },
+          { id: 'h2', time: '08:30 – 10:30', duration: 2.0, tier: 'A', code: 'A1_Bereal', titleEn: 'A1_Bereal Research (Unit 5 — Catch-up Session)', titleZh: 'A1_Bereal Research 商业研究（第5单元追赶）', noteEn: 'On track to finish Unit 6 before Dec 1', noteZh: '确保12月1日前完结全部6单元', done: false },
+          { id: 'h3', time: '10:30 – 12:00', duration: 1.5, tier: 'A', code: 'A2_SQL', titleEn: 'A2_SQL Curriculum Unit Practice (1.5 hrs)', titleZh: 'A2_SQL 数据库单元练习（1.5小时）', noteEn: 'Morning technical focus', noteZh: '上午技术专注块', done: false },
+          { id: 'h4', time: '12:00 – 13:00', duration: 1.0, tier: 'Routine', code: 'Meal', titleEn: 'Lunch & midday break', titleZh: '午餐与午间休整', noteEn: 'Fixed 1.0h meal buffer', noteZh: '固定1小时餐饮缓冲', done: false },
+          { id: 'h5', time: '13:00 – 16:00', duration: 3.0, tier: 'C', code: 'C3_Gym (1x/wk)', titleEn: 'C3_Gym Randomized Strength (2.3h + 40m commute)', titleZh: 'C3_Gym 随机部位力量训练（场内2.3h + 通勤40m）', noteEn: 'Upper/Lower randomized based on climbing fatigue', noteZh: '按攀岩疲劳度随机轮换部位，错峰安排', done: false },
+          { id: 'h6', time: '16:00 – 18:00', duration: 2.0, tier: 'B', code: 'B1_Case Study', titleEn: 'B1_Case Study Analytical Practice (2.0 hrs)', titleZh: 'B1_Case Study 商业案例分析（2.0小时）', noteEn: 'Replaces cancelled Thu evening lecture prep', noteZh: '填补感恩节停课空出的下午时段', done: false },
+          { id: 'h7', time: '18:00 – 19:30', duration: 1.5, tier: 'Routine', code: 'Thanksgiving', titleEn: 'Thanksgiving Dinner & holiday social window', titleZh: '感恩节晚餐与节日社交休整', noteEn: 'Extended holiday meal window', noteZh: '节日弹性用餐窗口', done: false },
+          { id: 'h8', time: '19:30 – 22:00', duration: 2.5, tier: 'Buffer', code: 'Emergency Buffer', titleEn: 'Emergency Buffer / Ahead-of-Schedule Study (2.5h)', titleZh: '应急缓冲区块 / 超前学习机动时间（2.5h）', noteEn: 'Available for Dec 1 Power BI preview', noteZh: '可用于提前预习12月1日启动的Power BI', done: false },
+          { id: 'h9', time: '22:00 – 23:00', duration: 1.0, tier: 'C', code: 'C1_Reading', titleEn: 'C1_Reading (60 mins full quota)', titleZh: 'C1_Reading 日常阅读（60分钟全额配额）', noteEn: 'Full reading quota restored', noteZh: '假期恢复完整阅读时长', done: false },
+          { id: 'h10', time: '23:00 – 23:30', duration: 0.5, tier: 'A', code: 'A3_Duolingo', titleEn: 'A3_Duolingo Korean (15m) + Sleep at 23:30', titleZh: 'A3_Duolingo 韩语（15分钟）+ 23:30 睡觉', noteEn: 'Locked sleep window: 23:30–07:30', noteZh: '睡眠红线锁定：23:30–07:30', done: false }
+        ]
+      }
+    };
+
+    // Deep clone helper
+    function cloneScenarios() {
+      return JSON.parse(JSON.stringify(initialScenarios));
+    }
+
+    schedulesState = cloneScenarios();
+
+    // Tier Styling Helper
+    function getTierStyle(tier) {
+      switch (tier) {
+        case 'S':
+          return {
+            badge: 'bg-rose-600 text-white',
+            card: 'bg-rose-50/40 border-rose-200 hover:border-rose-300',
+            labelEn: 'Tier S • Academic',
+            labelZh: 'S级 • 学术核心'
+          };
+        case 'A':
+          return {
+            badge: 'bg-indigo-600 text-white',
+            card: 'bg-indigo-50/40 border-indigo-200 hover:border-indigo-300',
+            labelEn: 'Tier A • Core Skill',
+            labelZh: 'A级 • 核心技能'
+          };
+        case 'B':
+          return {
+            badge: 'bg-amber-600 text-white',
+            card: 'bg-amber-50/40 border-amber-200 hover:border-amber-300',
+            labelEn: 'Tier B • Case/Climb',
+            labelZh: 'B级 • 案例/攀岩'
+          };
+        case 'C':
+          return {
+            badge: 'bg-slate-600 text-white',
+            card: 'bg-slate-50 border-slate-200 hover:border-slate-300',
+            labelEn: 'Tier C • Flexible',
+            labelZh: 'C级 • 弹性任务'
+          };
+        case 'Buffer':
+          return {
+            badge: 'bg-emerald-600 text-white',
+            card: 'bg-emerald-50/50 border-emerald-200 border-dashed hover:border-emerald-400',
+            labelEn: 'Emergency Buffer',
+            labelZh: '应急缓冲池'
+          };
+        case 'Commute':
+          return {
+            badge: 'bg-sky-700 text-white',
+            card: 'bg-sky-50/40 border-sky-200',
+            labelEn: 'Commute Lock',
+            labelZh: '通勤锁定'
+          };
+        default:
+          return {
+            badge: 'bg-slate-400 text-white',
+            card: 'bg-white border-slate-200/80',
+            labelEn: 'Routine / Meal',
+            labelZh: '作息 / 餐饮'
+          };
+      }
+    }
+
+    // Render Day Selector Tabs
+    function renderDayTabs() {
+      const container = document.getElementById('day-selector-grid');
+      container.innerHTML = '';
+
+      Object.values(schedulesState).forEach(day => {
+        const isActive = day.id === currentDayId;
+        const btn = document.createElement('button');
+        btn.onclick = () => {
+          currentDayId = day.id;
+          renderAll();
+        };
+        btn.className = isActive
+          ? 'text-left p-3 rounded-xl border-2 border-indigo-600 bg-indigo-50/60 shadow-xs transition'
+          : 'text-left p-3 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 transition';
+
+        btn.innerHTML = `
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold ${isActive ? 'text-indigo-900' : 'text-slate-800'}">
+              ${currentLang === 'en' ? day.tabDateEn : day.tabDateZh}
+            </span>
+            ${isActive ? '<span class="w-2 h-2 rounded-full bg-indigo-600"></span>' : ''}
+          </div>
+          <div class="text-[11px] mt-0.5 ${isActive ? 'text-indigo-700 font-medium' : 'text-slate-500'}">
+            ${currentLang === 'en' ? day.tabTagEn : day.tabTagZh}
+          </div>
+        `;
+        container.appendChild(btn);
+      });
+    }
+
+    // Render Main Timeline & Metrics
+    function renderAll() {
+      renderDayTabs();
+      const day = schedulesState[currentDayId];
+
+      // Update Static UI Labels based on Language
+      document.getElementById('app-title').textContent = currentLang === 'en'
+        ? 'MSBA AI Schedule & Dynamic To-Do System'
+        : 'MSBA 智能日程调度与动态 To-Do 看板';
+      document.getElementById('app-subtitle').textContent = currentLang === 'en'
+        ? 'Three-Source Sync: MSBA Class Schedule + Canvas DDLs + Routine Spec'
+        : '三源协同：《MSBA 秋季课表》 + 《Canvas 任务日历》 + 《个人日常规范》';
+      document.getElementById('rules-btn-text').textContent = currentLang === 'en' ? 'System Rules' : '调度规则说明';
+      document.getElementById('evening-btn-text').textContent = currentLang === 'en' ? '22:30 Evening Check-in' : '22:30 晚间复盘/插单';
+      document.getElementById('scenario-eyebrow').textContent = currentLang === 'en'
+        ? 'Interactive Demo Scenarios (Select a Day)'
+        : '交互式典型日程场景切换（点击查看不同日期排程）';
+      document.getElementById('scenario-desc').textContent = currentLang === 'en'
+        ? 'Switch between representative days from your November 2026 calendar to inspect how AI schedules classes, commutes, workouts, and buffers.'
+        : '切换 2026 年 11 月典型日程，直观展示 AI 如何联动课表、DDL、通勤缓冲及紧急插单重排机制。';
+      document.getElementById('reset-day-btn').textContent = currentLang === 'en' ? 'Reset Day State' : '重置本日状态';
+      document.getElementById('dispatch-badge').textContent = currentLang === 'en' ? '07:20 Morning Dispatch' : '07:20 早间日程播报';
+      document.getElementById('metrics-title').textContent = currentLang === 'en' ? 'Daily Time Budget (07:30 – 23:30)' : '每日时间账本 (07:30 – 23:30)';
+      document.getElementById('metric-study-lbl').textContent = currentLang === 'en' ? 'Tier S/A/B Focus' : 'S/A/B 核心学习';
+      document.getElementById('metric-commute-lbl').textContent = currentLang === 'en' ? 'Meals & Commute' : '餐饮与通勤锁';
+      document.getElementById('metric-buffer-lbl').textContent = currentLang === 'en' ? 'Wkly Buffer Left' : '本周剩余缓冲池';
+      document.getElementById('skipped-label').textContent = currentLang === 'en' ? 'Auto-Deferred:' : '动态降级/顺延：';
+      document.getElementById('timeline-heading').textContent = currentLang === 'en'
+        ? 'Time-Blocked Daily Execution Plan (07:30 – 23:30)'
+        : '全天时间块执行清单（07:30 – 23:30）';
+      document.getElementById('timeline-sub').textContent = currentLang === 'en'
+        ? 'Click checkboxes to mark blocks complete. Sleep (23:30–07:30) is strictly locked.'
+        : '点击左侧勾选框标记完成状态。核心睡眠窗口（23:30–07:30）系统绝对锁定。';
+      document.getElementById('sleep-lock-badge').textContent = currentLang === 'en'
+        ? 'Sleep Locked: 23:30 – 07:30 (8.0h)'
+        : '睡眠锁定：23:30 – 07:30 (8.0h)';
+
+      // Day Header & Metrics
+      const statusPill = document.getElementById('load-status-pill');
+      statusPill.textContent = currentLang === 'en' ? day.loadStatusEn : day.loadStatusZh;
+      statusPill.className = `text-xs font-semibold px-2.5 py-1 rounded-full ${day.loadBadgeClass}`;
+
+      document.getElementById('day-headline').textContent = currentLang === 'en' ? day.headlineEn : day.headlineZh;
+      document.getElementById('day-alert-text').textContent = currentLang === 'en' ? day.alertEn : day.alertZh;
+      document.getElementById('metric-study-hrs').textContent = `${day.studyHrs}h`;
+      document.getElementById('metric-commute-hrs').textContent = `${day.commuteMealHrs}h`;
+      document.getElementById('metric-buffer-hrs').textContent = `${day.bufferHrs}h`;
+      document.getElementById('skipped-items-text').textContent = currentLang === 'en' ? day.skippedEn : day.skippedZh;
+
+      const doneCount = day.blocks.filter(b => b.done).length;
+      document.getElementById('completion-counter').textContent = currentLang === 'en'
+        ? `${doneCount} / ${day.blocks.length} Done`
+        : `已完成 ${doneCount} / ${day.blocks.length}`;
+
+      // Rebalance Log Box
+      const logBox = document.getElementById('rebalance-log-box');
+      const logList = document.getElementById('rebalance-log-list');
+      if (day.rebalanceLogs.length > 0) {
+        logBox.classList.remove('hidden');
+        document.getElementById('rebalance-log-title').textContent = currentLang === 'en'
+          ? 'Dynamic Re-Balance Engine Executed:'
+          : 'AI 动态重排引擎已执行调整：';
+        logList.innerHTML = day.rebalanceLogs
+          .map(item => `<li>${currentLang === 'en' ? item.en : item.zh}</li>`)
+          .join('');
+      } else {
+        logBox.classList.add('hidden');
+      }
+
+      // Render Timeline Blocks
+      const container = document.getElementById('timeline-container');
+      container.innerHTML = '';
+
+      day.blocks.forEach((block, idx) => {
+        const style = getTierStyle(block.tier);
+        const card = document.createElement('div');
+        card.className = `relative z-10 flex items-start gap-3 p-3.5 rounded-xl border transition ${style.card} ${block.done ? 'opacity-65' : ''}`;
+
+        card.innerHTML = `
+          <div class="pt-0.5 shrink-0">
+            <input type="checkbox" ${block.done ? 'checked' : ''}
+              onchange="toggleBlockDone('${block.id}')"
+              class="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer" />
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div class="flex items-center gap-2">
+                <span class="text-xs font-bold font-mono text-slate-800 bg-white px-2 py-0.5 rounded border border-slate-200 shadow-2xs">
+                  ${block.time}
+                </span>
+                <span class="text-[11px] font-bold px-2 py-0.5 rounded ${style.badge}">
+                  ${block.code}
+                </span>
+              </div>
+              <span class="text-[11px] font-medium text-slate-500">
+                ${currentLang === 'en' ? style.labelEn : style.labelZh}
+              </span>
+            </div>
+
+            <div class="mt-1.5 text-sm font-semibold text-slate-900 ${block.done ? 'line-through text-slate-500' : ''}">
+              ${currentLang === 'en' ? block.titleEn : block.titleZh}
+            </div>
+
+            <div class="mt-1 text-xs text-slate-500 flex items-center gap-1.5">
+              <span>↳</span>
+              <span>${currentLang === 'en' ? block.noteEn : block.noteZh}</span>
+            </div>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    // Toggle Task Completion
+    function toggleBlockDone(blockId) {
+      const day = schedulesState[currentDayId];
+      const target = day.blocks.find(b => b.id === blockId);
+      if (target) {
+        target.done = !target.done;
+        renderAll();
+      }
+    }
+
+    // Toggle Language
+    function toggleLanguage() {
+      currentLang = currentLang === 'en' ? 'zh' : 'en';
+      renderAll();
+    }
+
+    // Reset Current Day
+    function resetCurrentDay() {
+      schedulesState[currentDayId] = JSON.parse(JSON.stringify(initialScenarios[currentDayId]));
+      renderAll();
+    }
+
+    // Modal Controls
+    function openEveningModal() {
+      document.getElementById('evening-modal').classList.remove('hidden');
+    }
+    function closeEveningModal() {
+      document.getElementById('evening-modal').classList.add('hidden');
+    }
+    function toggleRulesModal() {
+      document.getElementById('rules-modal').classList.toggle('hidden');
+    }
+
+    // Preset Urgent Task Button
+    function injectPresetUrgent() {
+      applyUrgentRebalance(
+        currentLang === 'en' ? 'Urgent MSBA Team Case Sync (2.0h)' : '突发 MSBA 小组紧急会议 (2.0h)',
+        2.0,
+        'S'
+      );
+    }
+
+    // Form Submit Handler
+    function handleUrgentSubmit(e) {
+      e.preventDefault();
+      const name = document.getElementById('urgent-task-name').value.trim();
+      const duration = parseFloat(document.getElementById('urgent-task-duration').value);
+      const priority = document.getElementById('urgent-task-priority').value;
+      if (!name) return;
+
+      applyUrgentRebalance(name, duration, priority);
+      document.getElementById('urgent-task-name').value = '';
+      closeEveningModal();
+    }
+
+    // Dynamic Re-Balancing Engine (Graceful Degradation + Emergency Buffer Consumption)
+    function applyUrgentRebalance(taskName, duration, priority) {
+      const day = schedulesState[currentDayId];
+      let remainingNeeded = duration;
+
+      // Step 1: Check if current day has an Emergency Buffer block
+      const bufferIdx = day.blocks.findIndex(b => b.tier === 'Buffer');
+      if (bufferIdx !== -1 && remainingNeeded > 0) {
+        const bufBlock = day.blocks[bufferIdx];
+        const absorbed = Math.min(bufBlock.duration, remainingNeeded);
+        remainingNeeded -= absorbed;
+        day.bufferHrs = Math.max(0, +(day.bufferHrs - absorbed).toFixed(1));
+
+        if (absorbed >= bufBlock.duration) {
+          day.blocks.splice(bufferIdx, 1, {
+            id: 'urg-' + Date.now(),
+            time: bufBlock.time,
+            duration: absorbed,
+            tier: priority,
+            code: `URGENT (${priority})`,
+            titleEn: `[Added] ${taskName}`,
+            titleZh: `[紧急插单] ${taskName}`,
+            noteEn: `Absorbed by Emergency Buffer (${absorbed}h) — zero Tier A/B disruption`,
+            noteZh: `由应急缓冲池吸收（${absorbed}h）— 未破坏任何核心学习计划`,
+            done: false
+          });
+        } else {
+          bufBlock.duration = +(bufBlock.duration - absorbed).toFixed(1);
+          bufBlock.titleEn = `Remaining Emergency Buffer (${bufBlock.duration}h)`;
+          bufBlock.titleZh = `剩余应急缓冲池 (${bufBlock.duration}h)`;
+          day.blocks.splice(bufferIdx, 0, {
+            id: 'urg-' + Date.now(),
+            time: '19:30 – 20:30',
+            duration: absorbed,
+            tier: priority,
+            code: `URGENT (${priority})`,
+            titleEn: `[Added] ${taskName}`,
+            titleZh: `[紧急插单] ${taskName}`,
+            noteEn: `Consumed ${absorbed}h of Emergency Buffer`,
+            noteZh: `消耗 ${absorbed}h 应急缓冲时间`,
+            done: false
+          });
+        }
+
+        day.rebalanceLogs.push({
+          en: `Inserted "${taskName}" (${duration}h) into today's Emergency Buffer. Remaining weekly buffer: ${day.bufferHrs}h.`,
+          zh: `已将紧急事项“${taskName}”（${duration}h）填入今日应急缓冲池，本周剩余缓冲池：${day.bufferHrs}h。`
+        });
+      }
+
+      // Step 2: If buffer wasn't present or insufficient, apply Graceful Degradation (Cut Tier C first, then Tier B)
+      if (remainingNeeded > 0) {
+        const cutCandidates = ['C', 'B'];
+        let preemptedNamesEn = [];
+        let preemptedNamesZh = [];
+
+        for (const targetTier of cutCandidates) {
+          for (let i = day.blocks.length - 1; i >= 0 && remainingNeeded > 0; i--) {
+            const blk = day.blocks[i];
+            if (blk.tier === targetTier && blk.code !== 'C2_Podcast') {
+              preemptedNamesEn.push(`${blk.code} (${blk.time})`);
+              preemptedNamesZh.push(`${blk.code} (${blk.time})`);
+              remainingNeeded -= blk.duration;
+
+              day.blocks.splice(i, 1, {
+                id: 'urg-' + Date.now() + i,
+                time: blk.time,
+                duration: blk.duration,
+                tier: priority,
+                code: `URGENT (${priority})`,
+                titleEn: `[Urgent Override] ${taskName}`,
+                titleZh: `[紧急插单替换] ${taskName}`,
+                noteEn: `Preempted ${blk.code} via Graceful Degradation; 23:30 sleep lock preserved`,
+                noteZh: `触发优先级降级替换原 ${blk.code}；死守 23:30 睡眠底线`,
+                done: false
+              });
+            }
+          }
+        }
+
+        if (preemptedNamesEn.length > 0) {
+          day.skippedEn += ` | Preempted: ${preemptedNamesEn.join(', ')}`;
+          day.skippedZh += ` | 紧急抢占：${preemptedNamesZh.join(', ')}`;
+          day.rebalanceLogs.push({
+            en: `No free buffer today. Applied Graceful Degradation: preempted ${preemptedNamesEn.join(', ')} to fit "${taskName}".`,
+            zh: `今日无空闲缓冲池，已触发优先级降级规则：自动砍掉 ${preemptedNamesZh.join(', ')} 以承接“${taskName}”。`
+          });
+        } else {
+          day.rebalanceLogs.push({
+            en: `Day is at 100% Tier S capacity. Deferred "${taskName}" to Thursday's Thanksgiving catch-up window.`,
+            zh: `当日已排满最高级 S 类学术任务，已自动将“${taskName}”顺延至周四感恩节追赶窗口。`
+          });
+        }
+      }
+
+      day.studyHrs = +(day.studyHrs + duration).toFixed(1);
+      renderAll();
+    }
+
+    // Initialize
+    renderAll();
+  </script>
+</body>
+</html>
